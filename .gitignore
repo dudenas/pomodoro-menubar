@@ -1,0 +1,15 @@
+# Swift Package Manager build artifacts
+.build/
+*.o
+*.swiftmodule
+
+# Generated app bundle (built via ./make-app.sh)
+Pomodoro.app/
+
+# macOS
+.DS_Store
+
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
