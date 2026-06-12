@@ -10,6 +10,11 @@ struct DayStat: Identifiable, Equatable {
     let minutes: Int        // raw extra minutes (can be negative)
     let bonusCycles: Int    // floor(minutes / 25), >= 0
     let total: Int          // count + bonusCycles
+    /// Resolved relative label ("Today" / "Yesterday" / "Mon, Jun 8") computed
+    /// at build time. Baked into the value so that when the calendar day rolls
+    /// over, the DayStat changes and SwiftUI re-renders the row — otherwise a
+    /// past day's row would keep a stale "Today"/"Yesterday" label.
+    let label: String
     var id: Date { date }
 }
 
@@ -154,10 +159,26 @@ final class LogStore: ObservableObject {
                 let c = counts[day] ?? 0
                 let m = minutes[day] ?? 0
                 let b = Self.bonusCycles(forMinutes: m)
-                result.append(DayStat(date: day, count: c, minutes: m, bonusCycles: b, total: c + b))
+                result.append(DayStat(date: day, count: c, minutes: m,
+                                      bonusCycles: b, total: c + b,
+                                      label: Self.dayLabel(for: day, cal: cal)))
             }
         }
         return result
+    }
+
+    /// Shared formatter for non-relative day labels.
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale.current
+        f.dateFormat = "EEE, MMM d"
+        return f
+    }()
+
+    static func dayLabel(for date: Date, cal: Calendar = .current) -> String {
+        if cal.isDateInToday(date) { return "Today" }
+        if cal.isDateInYesterday(date) { return "Yesterday" }
+        return dayFormatter.string(from: date)
     }
 
     /// Backwards-compatible: total cycles per day (count + bonus).

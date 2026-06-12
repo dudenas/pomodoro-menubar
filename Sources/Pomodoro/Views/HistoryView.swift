@@ -1,22 +1,5 @@
 import SwiftUI
 
-/// Shared, explicitly-localized formatter for non-today/yesterday day labels.
-private let historyDayFormatter: DateFormatter = {
-    let f = DateFormatter()
-    f.locale = Locale.current
-    f.calendar = Calendar.current
-    f.timeZone = Calendar.current.timeZone
-    f.dateFormat = "EEE, MMM d"
-    return f
-}()
-
-func historyDayLabel(for date: Date) -> String {
-    let cal = Calendar.current
-    if cal.isDateInToday(date) { return "Today" }
-    if cal.isDateInYesterday(date) { return "Yesterday" }
-    return historyDayFormatter.string(from: date)
-}
-
 struct HistoryView: View {
     @EnvironmentObject var store: LogStore
     @EnvironmentObject var eventLog: EventLog
@@ -79,7 +62,7 @@ private struct HistoryRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(historyDayLabel(for: stat.date))
+            Text(stat.label)
                 .frame(width: 110, alignment: .leading)
                 .font(.system(.body, design: .rounded))
                 .foregroundStyle(isEmpty ? .secondary : .primary)
