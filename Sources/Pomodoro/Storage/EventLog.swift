@@ -60,9 +60,18 @@ final class EventLog: ObservableObject {
             .sorted { $0.timestamp < $1.timestamp }
     }
 
+    /// Set when an unreadable events file couldn't be moved aside; saving
+    /// would overwrite it, so we don't.
+    private var saveBlocked = false
+
     private func load() {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            events = []
+            return
+        }
         guard let data = try? Data(contentsOf: fileURL),
               let file = try? decoder.decode(EventFile.self, from: data) else {
+            saveBlocked = !FileSafety.quarantine(fileURL)
             events = []
             return
         }
@@ -70,6 +79,7 @@ final class EventLog: ObservableObject {
     }
 
     private func save() {
+        guard !saveBlocked else { return }
         let file = EventFile(events: events)
         guard let data = try? encoder.encode(file) else { return }
         try? data.write(to: fileURL, options: .atomic)

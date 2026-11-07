@@ -19,6 +19,10 @@ struct Event: Codable, Identifiable, Equatable {
         case manualRemoved
         case minutesAdded
         case pomodoroRolledOver
+        // Never add a case here without a migration plan: an older build that
+        // meets an unknown kind fails to decode events.json, starts empty and
+        // overwrites the whole history on its next save. (Breaks are not
+        // logged for exactly this reason.)
     }
 
     init(
@@ -50,7 +54,7 @@ extension Event.Kind {
         case .completed:           return "Completed"
         case .manualAdded:         return "Added manually"
         case .manualRemoved:       return "Removed manually"
-        case .minutesAdded:        return "Added minutes"
+        case .minutesAdded:        return "Added extra minutes"
         case .pomodoroRolledOver:  return "Rolled over to a pomodoro"
         }
     }

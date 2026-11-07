@@ -26,6 +26,13 @@ final class LogStore: ObservableObject {
     /// LogStore, so derived values recompute even without an entry mutation.
     @Published private(set) var dayTick: Int = 0
 
+    /// The last thing the user did by hand (+, − or minutes), so it can be undone.
+    enum Undoable {
+        case added(PomodoroEntry)
+        case removed(PomodoroEntry, index: Int)
+    }
+    @Published private(set) var lastUndoable: Undoable?
+
     static let minutesPerCycle = 25
 
     private let fileURL: URL
@@ -72,7 +79,9 @@ final class LogStore: ObservableObject {
     // MARK: - Mutations
 
     func add(source: PomodoroEntry.Source, at date: Date = Date()) {
-        entries.append(PomodoroEntry(completedAt: date, source: source))
+        let entry = PomodoroEntry(completedAt: date, source: source)
+        entries.append(entry)
+        if source == .manual { lastUndoable = .added(entry) }
         save()
     }
 
@@ -81,7 +90,9 @@ final class LogStore: ObservableObject {
     /// nothing is auto-rolled in storage.
     func addMinutes(_ minutes: Int, at date: Date = Date()) {
         guard minutes != 0 else { return }
-        entries.append(PomodoroEntry(completedAt: date, source: .minutes, minutes: minutes))
+        let entry = PomodoroEntry(completedAt: date, source: .minutes, minutes: minutes)
+        entries.append(entry)
+        lastUndoable = .added(entry)
         save()
     }
 
@@ -92,9 +103,43 @@ final class LogStore: ObservableObject {
         if let idx = entries.lastIndex(where: {
             cal.isDateInToday($0.completedAt) && ($0.source == .timer || $0.source == .manual)
         }) {
-            entries.remove(at: idx)
+            let removed = entries.remove(at: idx)
+            lastUndoable = .removed(removed, index: idx)
             save()
         }
+    }
+
+    /// Short description for the Undo button, or nil when there's nothing to undo.
+    var undoLabel: String? {
+        switch lastUndoable {
+        case .none:
+            return nil
+        case .added(let e):
+            if e.source == .minutes, let m = e.minutes {
+                return m > 0 ? "+\(m) min" : "\(m) min"
+            }
+            return "added pomodoro"
+        case .removed:
+            return "removed pomodoro"
+        }
+    }
+
+    /// Reverts the last manual action. Returns what was undone, or nil if it
+    /// no longer applies (e.g. the entry is already gone).
+    @discardableResult
+    func undoLast() -> Undoable? {
+        guard let action = lastUndoable else { return nil }
+        lastUndoable = nil
+        switch action {
+        case .added(let e):
+            guard let idx = entries.firstIndex(where: { $0.id == e.id }) else { return nil }
+            entries.remove(at: idx)
+        case .removed(let e, let index):
+            guard !entries.contains(where: { $0.id == e.id }) else { return nil }
+            entries.insert(e, at: min(index, entries.count))
+        }
+        save()
+        return action
     }
 
     // MARK: - Derived (today)
@@ -106,6 +151,14 @@ final class LogStore: ObservableObject {
         return entries.reduce(into: 0) { acc, e in
             guard cal.isDateInToday(e.completedAt) else { return }
             if e.source == .timer || e.source == .manual { acc += 1 }
+        }
+    }
+
+    /// Pomodoros completed by the timer today (drives the long-break rhythm).
+    var todayTimerCount: Int {
+        let cal = Calendar.current
+        return entries.reduce(into: 0) { acc, e in
+            if e.source == .timer, cal.isDateInToday(e.completedAt) { acc += 1 }
         }
     }
 
@@ -198,9 +251,18 @@ final class LogStore: ObservableObject {
 
     // MARK: - Persistence
 
+    /// Set when an unreadable log couldn't be moved aside; saving would
+    /// overwrite it, so we don't.
+    private var saveBlocked = false
+
     private func load() {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            entries = []
+            return
+        }
         guard let data = try? Data(contentsOf: fileURL),
               let file = try? decoder.decode(LogFile.self, from: data) else {
+            saveBlocked = !FileSafety.quarantine(fileURL)
             entries = []
             return
         }
@@ -220,6 +282,7 @@ final class LogStore: ObservableObject {
     }
 
     private func save() {
+        guard !saveBlocked else { return }
         let file = LogFile(entries: entries)
         guard let data = try? encoder.encode(file) else { return }
         try? data.write(to: fileURL, options: .atomic)
@@ -247,6 +310,7 @@ final class LogStore: ObservableObject {
         let today = Calendar.current.startOfDay(for: Date())
         if today != lastSeenDay {
             lastSeenDay = today
+            lastUndoable = nil  // yesterday's action shouldn't show as today's Undo
             dayTick &+= 1
         }
     }
