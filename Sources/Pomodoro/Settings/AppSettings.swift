@@ -1,28 +1,6 @@
 import Foundation
 import AppKit
 
-/// UserDefaults keys and defaults for settings read outside SwiftUI views.
-enum BreakSettings {
-    static let shortKey = "shortBreakMinutes"
-    static let longKey = "longBreakMinutes"
-    static let everyKey = "longBreakEvery"
-    static let autoStartKey = "autoStartBreaks"
-
-    static let defaultShort = 5
-    static let defaultLong = 15
-    static let defaultEvery = 4
-
-    static var shortMinutes: Int { int(shortKey, defaultShort, 1...60) }
-    static var longMinutes: Int { int(longKey, defaultLong, 1...60) }
-    static var longEvery: Int { int(everyKey, defaultEvery, 2...12) }
-    static var autoStart: Bool { UserDefaults.standard.bool(forKey: autoStartKey) }
-
-    private static func int(_ key: String, _ fallback: Int, _ range: ClosedRange<Int>) -> Int {
-        let v = UserDefaults.standard.object(forKey: key) as? Int ?? fallback
-        return min(max(v, range.lowerBound), range.upperBound)
-    }
-}
-
 enum GoalSettings {
     static let key = "dailyGoal"
     /// Median day in the log at the time this shipped was 10.

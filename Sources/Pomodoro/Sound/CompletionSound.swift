@@ -4,13 +4,10 @@ enum SoundSettings {
     static let enabledKey = "soundEnabled"
     static let soundKey = "completionSound"
     static let volumeKey = "soundVolume"
-    static let breakSoundKey = "breakEndSound"
     static let customPathKey = "customSoundPath"
 
     /// Singing bowl was the user's pick of the first round.
     static let defaultSoundID = SoundLibrary.synthID(.singingBowl)
-    /// Different from the pomodoro sound so the two ends are told apart by ear.
-    static let defaultBreakSoundID = SoundLibrary.synthID(.softChime)
     /// The synth sounds are normalised near full scale, ~17 dB hotter than
     /// macOS's Glass; 0.4 lands them noticeable but not startling.
     static let defaultVolume = 0.4
@@ -74,21 +71,14 @@ final class SoundPlayer {
     private var current: NSSound?
     private var synthCache: [SynthPreset: Data] = [:]
 
-    enum Cue {
-        case focusEnd
-        case breakEnd
-    }
-
-    /// Plays the user's chosen sound for this moment, if sound is on.
-    func play(_ cue: Cue) {
+    /// Plays the user's chosen sound, if sound is on.
+    func playCompletion() {
         let d = UserDefaults.standard
         guard d.object(forKey: SoundSettings.enabledKey) as? Bool ?? true else { return }
-        let id: String
-        switch cue {
-        case .focusEnd: id = d.string(forKey: SoundSettings.soundKey) ?? SoundSettings.defaultSoundID
-        case .breakEnd: id = d.string(forKey: SoundSettings.breakSoundKey) ?? SoundSettings.defaultBreakSoundID
-        }
-        play(id: id, volume: d.object(forKey: SoundSettings.volumeKey) as? Double ?? SoundSettings.defaultVolume)
+        play(
+            id: d.string(forKey: SoundSettings.soundKey) ?? SoundSettings.defaultSoundID,
+            volume: d.object(forKey: SoundSettings.volumeKey) as? Double ?? SoundSettings.defaultVolume
+        )
     }
 
     func play(id: String, volume: Double) {

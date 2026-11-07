@@ -1,6 +1,6 @@
 # Pomodoro (macOS menu bar)
 
-A minimal native macOS menu bar Pomodoro app. 25-minute focus timer with short/long breaks, today's total (timer + manual + pomodoros earned from extra minutes) with a daily goal, Undo for manual changes, and a week-by-week history. Data lives in `~/Library/Application Support/Pomodoro/log.json`.
+A minimal native macOS menu bar Pomodoro app. 25-minute focus timer, today's total (timer + manual + pomodoros earned from extra minutes) with a daily goal, Undo for manual changes, and a week-by-week history. Data lives in `~/Library/Application Support/Pomodoro/log.json`.
 
 Requirements:
 - macOS 13 or newer
@@ -37,8 +37,8 @@ Then Cmd-R to run.
 - `Sources/Pomodoro/PomodoroApp.swift` — `@main`, sets `.accessory` activation policy, wires the `MenuBarExtra` and `History` window scenes.
 - `Sources/Pomodoro/Models/PomodoroEntry.swift` — log entry record (`timer` vs `manual`).
 - `Sources/Pomodoro/Storage/LogStore.swift` — JSON read/write, `todayCount`, `dailyCounts(days:)`.
-- `Sources/Pomodoro/Timer/TimerEngine.swift` — `idle | running | paused` state machine with a `focus | shortBreak | longBreak` phase, ticks every 0.25s, plays the pomodoro-end or break-end sound. Breaks never add to the log.
-- `Sources/Pomodoro/Settings/AppSettings.swift` — break / daily-goal settings keys, and `FileSafety`: an unreadable `log.json` or `events.json` is moved aside (`*.unreadable-<timestamp>.json`) instead of being overwritten.
+- `Sources/Pomodoro/Timer/TimerEngine.swift` — `idle | running | paused` state machine, ticks every 0.25s, plays the chosen completion sound.
+- `Sources/Pomodoro/Settings/AppSettings.swift` — daily-goal setting key, and `FileSafety`: an unreadable `log.json` or `events.json` is moved aside (`*.unreadable-<timestamp>.json`) instead of being overwritten.
 - `Sources/Pomodoro/Sound/SoundSynth.swift` — the built-in sounds (Soft chime, Warm bell, Singing bowl, Marimba), synthesised in code; no audio files bundled.
 - `Sources/Pomodoro/Sound/CompletionSound.swift` — sound list (built-in + macOS system sounds + your own file), volume, playback.
 - `Sources/Pomodoro/Views/SettingsView.swift` — Settings: launch at login, sound on/off, sound picker with preview, volume, "Use my own file…".

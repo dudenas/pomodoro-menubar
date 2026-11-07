@@ -26,9 +26,6 @@ final class AppContainer: ObservableObject {
             },
             logEvent: { [weak eventLog] kind, remaining, at in
                 eventLog?.log(kind, remainingSec: remaining, at: at)
-            },
-            focusCountToday: { [weak store] in
-                store?.todayTimerCount ?? 0
             }
         )
         DispatchQueue.main.async { FileSafety.reportIncidents() }
@@ -76,7 +73,7 @@ struct PomodoroApp: App {
         Window("Pomodoro Settings", id: "settings") {
             SettingsView()
         }
-        .defaultSize(width: 440, height: 640)
+        .defaultSize(width: 440, height: 520)
         .windowResizability(.contentSize)
     }
 }

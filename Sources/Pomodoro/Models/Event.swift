@@ -21,8 +21,7 @@ struct Event: Codable, Identifiable, Equatable {
         case pomodoroRolledOver
         // Never add a case here without a migration plan: an older build that
         // meets an unknown kind fails to decode events.json, starts empty and
-        // overwrites the whole history on its next save. (Breaks are not
-        // logged for exactly this reason.)
+        // overwrites the whole history on its next save.
     }
 
     init(
