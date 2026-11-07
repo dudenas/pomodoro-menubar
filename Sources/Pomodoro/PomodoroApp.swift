@@ -26,8 +26,12 @@ final class AppContainer: ObservableObject {
             },
             logEvent: { [weak eventLog] kind, remaining, at in
                 eventLog?.log(kind, remainingSec: remaining, at: at)
+            },
+            focusCountToday: { [weak store] in
+                store?.todayTimerCount ?? 0
             }
         )
+        DispatchQueue.main.async { FileSafety.reportIncidents() }
     }
 }
 
@@ -42,6 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct PomodoroApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var container = AppContainer()
+
+    init() {
+        // Before AppContainer exists, so a second copy never loads or saves.
+        SingleInstance.exitIfAlreadyRunning()
+    }
 
     var body: some Scene {
         MenuBarExtra {
@@ -67,7 +76,7 @@ struct PomodoroApp: App {
         Window("Pomodoro Settings", id: "settings") {
             SettingsView()
         }
-        .defaultSize(width: 420, height: 360)
+        .defaultSize(width: 440, height: 640)
         .windowResizability(.contentSize)
     }
 }

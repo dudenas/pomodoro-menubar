@@ -13,12 +13,17 @@ struct MenuBarLabel: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: engine.isRunning ? "timer.circle.fill" : "timer")
+            Image(systemName: icon)
             if engine.isRunning {
                 Text(formatMMSS(engine.remaining))
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
             }
         }
+    }
+
+    private var icon: String {
+        guard engine.isRunning else { return "timer" }
+        return engine.phase.isBreak ? "cup.and.saucer.fill" : "timer.circle.fill"
     }
 }
 
@@ -28,124 +33,59 @@ struct MenuBarContentView: View {
     @EnvironmentObject var eventLog: EventLog
     @EnvironmentObject var nav: HistoryNav
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(GoalSettings.key) private var dailyGoal: Int = GoalSettings.defaultGoal
+    // Observed only so the idle clock redraws when break lengths change.
+    @AppStorage(BreakSettings.shortKey) private var shortBreak: Int = BreakSettings.defaultShort
+    @AppStorage(BreakSettings.longKey) private var longBreak: Int = BreakSettings.defaultLong
 
     @State private var minutesInput: String = ""
     @FocusState private var minutesFocused: Bool
+    /// First Cancel tap on a pomodoro older than a minute only arms it.
+    @State private var cancelArmed = false
+    @State private var disarmTask: Task<Void, Never>?
+
+    /// Below this, Cancel acts at once — nothing worth protecting yet.
+    private static let cancelConfirmAfter: TimeInterval = 60
 
     var body: some View {
         VStack(spacing: 14) {
-            Text(formatMMSS(engine.remaining))
-                .font(.system(size: 44, weight: .semibold, design: .monospaced))
-                .monospacedDigit()
-                .padding(.top, 12)
-
-            HStack(spacing: 10) {
-                Button(action: primaryTap) {
-                    Label(primaryLabel, systemImage: primaryIcon)
-                        .frame(maxWidth: .infinity)
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-
-                Button(action: { engine.cancel() }) {
-                    Label("Cancel", systemImage: "xmark")
-                        .frame(maxWidth: .infinity)
-                }
-                .controlSize(.large)
-                .disabled(engine.state == .idle)
+            VStack(spacing: 0) {
+                Text(phaseCaption)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(engine.phase.isBreak ? Color.mint : Color.secondary)
+                Text(formatMMSS(engine.displayRemaining))
+                    .font(.system(size: 44, weight: .semibold, design: .monospaced))
+                    .monospacedDigit()
             }
+            .padding(.top, 8)
 
-            // Hidden button: Space toggles Start/Pause, but only when the
-            // minutes field is not being edited (so Space can be typed there).
+            controls
+
+            // Hidden button: Space toggles Start/Pause everywhere, including
+            // while the minutes field has focus — it only takes numbers, so a
+            // space is never wanted there (and the panel may focus it on open).
             Button(action: primaryTap) { EmptyView() }
                 .keyboardShortcut(.space, modifiers: [])
-                .disabled(minutesFocused)
                 .opacity(0)
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
 
             Divider()
 
-            // Pomodoro count row
-            HStack {
-                Button {
-                    if store.todayCount > 0 {
-                        eventLog.log(.manualRemoved)
-                        store.removeMostRecentToday()
-                    }
-                } label: {
-                    Image(systemName: "minus")
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.bordered)
-                .disabled(store.todayCount == 0)
+            countRow
 
-                Spacer()
-                VStack(spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("\(store.todayCount)")
-                            .font(.system(size: 28, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                        if store.todayBonusCycles > 0 {
-                            Text("+\(store.todayBonusCycles)")
-                                .font(.system(size: 18, weight: .medium, design: .rounded))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                    }
-                    Text("pomodoros today")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-
-                Button {
-                    eventLog.log(.manualAdded)
-                    store.add(source: .manual)
-                } label: {
-                    Image(systemName: "plus")
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.bordered)
+            if dailyGoal > 0 {
+                goalBar
             }
 
-            // Extra minutes block
-            VStack(spacing: 8) {
-                HStack {
-                    Text("Extra minutes")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
+            extraMinutes
 
-                // Three explicit stats: minutes to next cycle / total today / bonus cycles
-                HStack(spacing: 0) {
-                    statCell(value: "\(minutesToNext)", caption: "to next")
-                    statDivider
-                    statCell(value: "\(store.todayMinutes)", caption: "min today",
-                             emphasized: store.todayMinutes != 0)
-                    statDivider
-                    statCell(value: "+\(store.todayBonusCycles)", caption: "cycles",
-                             emphasized: store.todayBonusCycles > 0)
+            if let undo = store.undoLabel {
+                Button(action: undoLast) {
+                    Label("Undo \(undo)", systemImage: "arrow.uturn.backward")
                 }
-
-                HStack(spacing: 6) {
-                    quickMinuteButton(5)
-                    quickMinuteButton(10)
-                    quickMinuteButton(15)
-                    quickMinuteButton(25)
-                }
-
-                HStack(spacing: 6) {
-                    TextField("min (negative to subtract)", text: $minutesInput)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($minutesFocused)
-                        .frame(maxWidth: .infinity)
-                        .onSubmit { commitMinutesInput() }
-                    Button("Add") { commitMinutesInput() }
-                        .disabled(parsedMinutesInput == nil)
-                }
+                .buttonStyle(.borderless)
+                .font(.caption)
             }
 
             Divider()
@@ -179,34 +119,182 @@ struct MenuBarContentView: View {
         }
         .padding(14)
         .frame(width: 300)
+        .onChange(of: engine.state) { _ in disarmCancel() }
     }
 
-    // MARK: - Minutes stat cells
+    // MARK: - Timer controls
 
     @ViewBuilder
-    private func statCell(value: String, caption: String, emphasized: Bool = true) -> some View {
-        VStack(spacing: 1) {
-            Text(value)
-                .font(.system(.body, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(emphasized ? .primary : .secondary)
-            Text(caption)
+    private var controls: some View {
+        if engine.state == .idle && engine.phase.isBreak {
+            HStack(spacing: 10) {
+                Button(action: { engine.start() }) {
+                    Label("Start break", systemImage: "cup.and.saucer.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button("Skip break") { engine.skipBreak() }
+                    .controlSize(.large)
+                    .help("Go straight back to focus")
+            }
+        } else {
+            HStack(spacing: 10) {
+                Button(action: primaryTap) {
+                    Label(primaryLabel, systemImage: primaryIcon)
+                        .frame(maxWidth: .infinity)
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                // Deliberately narrower than the main button, and a pomodoro
+                // more than a minute in needs a second tap to throw away.
+                Button(action: cancelTap) {
+                    if cancelArmed {
+                        Text("Discard \(Int(engine.elapsed / 60)) min?")
+                            .foregroundStyle(.red)
+                    } else {
+                        Text(engine.phase.isBreak ? "End break" : "Cancel")
+                    }
+                }
+                .controlSize(.large)
+                .disabled(engine.state == .idle)
+                .help(engine.phase.isBreak ? "End the break now" : "Throw this pomodoro away")
+            }
+        }
+    }
+
+    private var phaseCaption: String {
+        switch (engine.state, engine.phase) {
+        case (.idle, .shortBreak): return "Time for a break"
+        case (.idle, .longBreak): return "Time for a long break"
+        case (_, .shortBreak): return "Break"
+        case (_, .longBreak): return "Long break"
+        case (_, .focus): return "Focus"
+        }
+    }
+
+    private func cancelTap() {
+        if engine.phase.isBreak || engine.elapsed < Self.cancelConfirmAfter || cancelArmed {
+            disarmCancel()
+            engine.cancel()
+            return
+        }
+        cancelArmed = true
+        disarmTask?.cancel()
+        disarmTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if !Task.isCancelled { cancelArmed = false }
+        }
+    }
+
+    private func disarmCancel() {
+        disarmTask?.cancel()
+        disarmTask = nil
+        cancelArmed = false
+    }
+
+    // MARK: - Today's count
+
+    private var countRow: some View {
+        HStack {
+            Button {
+                if store.todayCount > 0 {
+                    eventLog.log(.manualRemoved)
+                    store.removeMostRecentToday()
+                }
+            } label: {
+                Image(systemName: "minus")
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.bordered)
+            .disabled(store.todayCount == 0)
+            .help("Remove the last pomodoro")
+
+            Spacer()
+            VStack(spacing: 2) {
+                // The total is the headline; the split is only detail.
+                Text("\(store.todayTotalCycles)")
+                    .font(.system(size: 40, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                Text(store.todayTotalCycles == 1 ? "pomodoro today" : "pomodoros today")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if store.todayBonusCycles > 0 {
+                    Text("\(store.todayCount) + \(store.todayBonusCycles) from extra minutes")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                }
+            }
+            Spacer()
+
+            Button {
+                eventLog.log(.manualAdded)
+                store.add(source: .manual)
+            } label: {
+                Image(systemName: "plus")
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.bordered)
+            .help("Add a pomodoro")
+        }
+    }
+
+    private var goalBar: some View {
+        let total = store.todayTotalCycles
+        let reached = total >= dailyGoal
+        return VStack(spacing: 4) {
+            ProgressView(value: Double(min(total, dailyGoal)), total: Double(dailyGoal))
+                .tint(reached ? .green : .accentColor)
+            Text(reached ? "Daily goal of \(dailyGoal) reached" : "\(dailyGoal - total) to your daily goal of \(dailyGoal)")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .monospacedDigit()
         }
-        .frame(maxWidth: .infinity)
     }
 
-    private var statDivider: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: 1, height: 26)
+    // MARK: - Extra minutes
+
+    private var extraMinutes: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Extra minutes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(store.todayMinutes) today · \(minutesToNext) to next pomodoro")
+                    .font(.caption)
+                    .foregroundStyle(store.todayMinutes != 0 ? .primary : .secondary)
+                    .monospacedDigit()
+            }
+
+            HStack(spacing: 6) {
+                quickMinuteButton(5)
+                quickMinuteButton(10)
+                quickMinuteButton(15)
+                quickMinuteButton(25)
+            }
+
+            HStack(spacing: 6) {
+                TextField("Other, e.g. 20 or -10", text: $minutesInput)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($minutesFocused)
+                    .frame(maxWidth: .infinity)
+                    .onSubmit { commitMinutesInput() }
+                Button("Add") { commitMinutesInput() }
+                    .disabled(parsedMinutesInput == nil)
+            }
+        }
     }
 
-    /// Minutes until the extra-minutes pool rolls another bonus cycle.
+    /// Minutes until the extra-minutes pool makes another pomodoro.
     private var minutesToNext: Int {
         let total = store.todayMinutes
-        guard total > 0 else { return LogStore.minutesPerCycle }
+        guard total > 0 else { return LogStore.minutesPerCycle - total }
         let r = total % LogStore.minutesPerCycle
         return r == 0 ? LogStore.minutesPerCycle : LogStore.minutesPerCycle - r
     }
@@ -233,11 +321,28 @@ struct MenuBarContentView: View {
         guard let n = parsedMinutesInput else { return }
         addMinutes(n)
         minutesInput = ""
+        minutesFocused = false
     }
 
     private func addMinutes(_ m: Int) {
         eventLog.log(.minutesAdded, minutes: m)
         store.addMinutes(m)
+    }
+
+    /// Reverts the last +, − or minutes entry, and records the reversal in
+    /// the day's timeline with the existing event kinds.
+    private func undoLast() {
+        guard let undone = store.undoLast() else { return }
+        switch undone {
+        case .added(let e):
+            if e.source == .minutes {
+                eventLog.log(.minutesAdded, minutes: -(e.minutes ?? 0))
+            } else {
+                eventLog.log(.manualRemoved)
+            }
+        case .removed:
+            eventLog.log(.manualAdded)
+        }
     }
 
     private func openHistory() {

@@ -16,8 +16,15 @@ struct DayDetailView: View {
                     .font(.title2.bold())
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(summaryText(pomodoros: pomodoros, bonus: bonusCycles, minutes: extraMinutes))
-                        .foregroundStyle(.secondary)
+                    Text(pomodoros + bonusCycles == 1 ? "1 pomodoro" : "\(pomodoros + bonusCycles) pomodoros")
+                        .font(.headline)
+                        .monospacedDigit()
+                    if let detail = summaryText(pomodoros: pomodoros, bonus: bonusCycles, minutes: extraMinutes) {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
                     Text("\(events.count) events")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -75,17 +82,11 @@ struct DayDetailView: View {
         return (pomodoros, minutes)
     }
 
-    private func summaryText(pomodoros: Int, bonus: Int, minutes: Int) -> String {
-        var parts: [String] = []
-        if bonus > 0 {
-            parts.append("\(pomodoros) + \(bonus) cycles")
-        } else {
-            parts.append("\(pomodoros) pomodoros")
-        }
-        if minutes != 0 {
-            parts.append("\(minutes) min")
-        }
-        return parts.joined(separator: " · ")
+    /// The split behind the total, only when there is one to show.
+    private func summaryText(pomodoros: Int, bonus: Int, minutes: Int) -> String? {
+        if bonus > 0 { return "\(pomodoros) + \(bonus) from \(minutes) extra min" }
+        if minutes != 0 { return "\(minutes) extra min" }
+        return nil
     }
 }
 
