@@ -22,8 +22,7 @@ struct MenuBarLabel: View {
     }
 
     private var icon: String {
-        guard engine.isRunning else { return "timer" }
-        return engine.phase.isBreak ? "cup.and.saucer.fill" : "timer.circle.fill"
+        engine.isRunning ? "timer.circle.fill" : "timer"
     }
 }
 
@@ -34,30 +33,24 @@ struct MenuBarContentView: View {
     @EnvironmentObject var nav: HistoryNav
     @Environment(\.openWindow) private var openWindow
     @AppStorage(GoalSettings.key) private var dailyGoal: Int = GoalSettings.defaultGoal
-    // Observed only so the idle clock redraws when break lengths change.
-    @AppStorage(BreakSettings.shortKey) private var shortBreak: Int = BreakSettings.defaultShort
-    @AppStorage(BreakSettings.longKey) private var longBreak: Int = BreakSettings.defaultLong
 
     @State private var minutesInput: String = ""
     @FocusState private var minutesFocused: Bool
     /// First Cancel tap on a pomodoro older than a minute only arms it.
     @State private var cancelArmed = false
     @State private var disarmTask: Task<Void, Never>?
+    /// A large custom entry waiting for a second press of Add.
+    @State private var pendingLargeMinutes: Int?
 
     /// Below this, Cancel acts at once — nothing worth protecting yet.
     private static let cancelConfirmAfter: TimeInterval = 60
 
     var body: some View {
         VStack(spacing: 14) {
-            VStack(spacing: 0) {
-                Text(phaseCaption)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(engine.phase.isBreak ? Color.mint : Color.secondary)
-                Text(formatMMSS(engine.displayRemaining))
-                    .font(.system(size: 44, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-            }
-            .padding(.top, 8)
+            Text(formatMMSS(engine.remaining))
+                .font(.system(size: 44, weight: .semibold, design: .monospaced))
+                .monospacedDigit()
+                .padding(.top, 12)
 
             controls
 
@@ -80,13 +73,15 @@ struct MenuBarContentView: View {
 
             extraMinutes
 
-            if let undo = store.undoLabel {
-                Button(action: undoLast) {
-                    Label("Undo \(undo)", systemImage: "arrow.uturn.backward")
-                }
-                .buttonStyle(.borderless)
-                .font(.caption)
+            // Always present so the popover never changes height; greyed
+            // out when there's nothing to undo.
+            Button(action: undoLast) {
+                Label(store.undoLabel.map { "Undo \($0)" } ?? "Undo",
+                      systemImage: "arrow.uturn.backward")
             }
+            .buttonStyle(.borderless)
+            .font(.caption)
+            .disabled(store.undoLabel == nil)
 
             Divider()
 
@@ -124,61 +119,34 @@ struct MenuBarContentView: View {
 
     // MARK: - Timer controls
 
-    @ViewBuilder
     private var controls: some View {
-        if engine.state == .idle && engine.phase.isBreak {
-            HStack(spacing: 10) {
-                Button(action: { engine.start() }) {
-                    Label("Start break", systemImage: "cup.and.saucer.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-
-                Button("Skip break") { engine.skipBreak() }
-                    .controlSize(.large)
-                    .help("Go straight back to focus")
+        HStack(spacing: 10) {
+            Button(action: primaryTap) {
+                Label(primaryLabel, systemImage: primaryIcon)
+                    .frame(maxWidth: .infinity)
             }
-        } else {
-            HStack(spacing: 10) {
-                Button(action: primaryTap) {
-                    Label(primaryLabel, systemImage: primaryIcon)
-                        .frame(maxWidth: .infinity)
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
 
-                // Deliberately narrower than the main button, and a pomodoro
-                // more than a minute in needs a second tap to throw away.
-                Button(action: cancelTap) {
-                    if cancelArmed {
-                        Text("Discard \(Int(engine.elapsed / 60)) min?")
-                            .foregroundStyle(.red)
-                    } else {
-                        Text(engine.phase.isBreak ? "End break" : "Cancel")
-                    }
+            // Deliberately narrower than the main button, and a pomodoro
+            // more than a minute in needs a second tap to throw away.
+            Button(action: cancelTap) {
+                if cancelArmed {
+                    Text("Discard \(Int(engine.elapsed / 60)) min?")
+                        .foregroundStyle(.red)
+                } else {
+                    Text("Cancel")
                 }
-                .controlSize(.large)
-                .disabled(engine.state == .idle)
-                .help(engine.phase.isBreak ? "End the break now" : "Throw this pomodoro away")
             }
-        }
-    }
-
-    private var phaseCaption: String {
-        switch (engine.state, engine.phase) {
-        case (.idle, .shortBreak): return "Time for a break"
-        case (.idle, .longBreak): return "Time for a long break"
-        case (_, .shortBreak): return "Break"
-        case (_, .longBreak): return "Long break"
-        case (_, .focus): return "Focus"
+            .controlSize(.large)
+            .disabled(engine.state == .idle)
+            .help("Throw this pomodoro away")
         }
     }
 
     private func cancelTap() {
-        if engine.phase.isBreak || engine.elapsed < Self.cancelConfirmAfter || cancelArmed {
+        if engine.elapsed < Self.cancelConfirmAfter || cancelArmed {
             disarmCancel()
             engine.cancel()
             return
@@ -201,34 +169,33 @@ struct MenuBarContentView: View {
 
     private var countRow: some View {
         HStack {
-            Button {
-                if store.todayCount > 0 {
-                    eventLog.log(.manualRemoved)
-                    store.removeMostRecentToday()
-                }
-            } label: {
+            Button(action: minusTap) {
                 Image(systemName: "minus")
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.bordered)
-            .disabled(store.todayCount == 0)
-            .help("Remove the last pomodoro")
+            .disabled(store.todayTotalCycles == 0)
+            .help(store.todayCount > 0
+                  ? "Remove the last pomodoro"
+                  : "Subtract \(LogStore.minutesPerCycle) extra minutes (one pomodoro)")
 
             Spacer()
             VStack(spacing: 2) {
                 // The total is the headline; the split is only detail.
                 Text("\(store.todayTotalCycles)")
-                    .font(.system(size: 40, weight: .semibold, design: .rounded))
+                    .font(.system(size: 32, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                 Text(store.todayTotalCycles == 1 ? "pomodoro today" : "pomodoros today")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if store.todayBonusCycles > 0 {
-                    Text("\(store.todayCount) + \(store.todayBonusCycles) from extra minutes")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
-                }
+                // Line always takes its space, so the popover doesn't jump
+                // when the first extra-minutes pomodoro appears.
+                Text("\(store.todayCount) + \(store.todayBonusCycles) from extra minutes")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                    .opacity(store.todayBonusCycles > 0 ? 1 : 0)
+                    .accessibilityHidden(store.todayBonusCycles == 0)
             }
             Spacer()
 
@@ -261,15 +228,14 @@ struct MenuBarContentView: View {
 
     private var extraMinutes: some View {
         VStack(spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Extra minutes")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            // Left: extra minutes logged today. Right: what's left until
+            // they add up to the next full pomodoro.
+            HStack(alignment: .top) {
+                minuteStat(value: store.todayMinutes, caption: "extra minutes today",
+                           alignment: .leading, dimmed: store.todayMinutes == 0)
                 Spacer()
-                Text("\(store.todayMinutes) today · \(minutesToNext) to next pomodoro")
-                    .font(.caption)
-                    .foregroundStyle(store.todayMinutes != 0 ? .primary : .secondary)
-                    .monospacedDigit()
+                minuteStat(value: minutesToNext, caption: "left to a full pomodoro",
+                           alignment: .trailing, dimmed: false)
             }
 
             HStack(spacing: 6) {
@@ -280,14 +246,47 @@ struct MenuBarContentView: View {
             }
 
             HStack(spacing: 6) {
-                TextField("Other, e.g. 20 or -10", text: $minutesInput)
+                Text("Other")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("e.g. 20 or -10", text: $minutesInput)
                     .textFieldStyle(.roundedBorder)
                     .focused($minutesFocused)
                     .frame(maxWidth: .infinity)
                     .onSubmit { commitMinutesInput() }
-                Button("Add") { commitMinutesInput() }
-                    .disabled(parsedMinutesInput == nil)
+                    .onChange(of: minutesInput) { new in
+                        // Numbers only (one leading minus); typing clears a pending confirm.
+                        let cleaned = Self.sanitizeMinutes(new)
+                        if cleaned != new { minutesInput = cleaned }
+                        pendingLargeMinutes = nil
+                    }
+                Button(action: commitMinutesInput) {
+                    // Colour only in the confirm state, so the disabled
+                    // look of plain "Add" stays intact.
+                    if let pending = pendingLargeMinutes {
+                        Text("Add \(pending) min?").foregroundStyle(.orange)
+                    } else {
+                        Text("Add")
+                    }
+                }
+                .disabled(parsedMinutesInput == nil)
+                .help(pendingLargeMinutes != nil
+                      ? "That's a lot of minutes — press again to confirm"
+                      : "Add these minutes to today")
             }
+        }
+    }
+
+    private func minuteStat(value: Int, caption: String,
+                            alignment: HorizontalAlignment, dimmed: Bool) -> some View {
+        VStack(alignment: alignment, spacing: 1) {
+            Text("\(value) min")
+                .font(.system(.body, design: .rounded).weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(dimmed ? .secondary : .primary)
+            Text(caption)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -319,9 +318,38 @@ struct MenuBarContentView: View {
 
     private func commitMinutesInput() {
         guard let n = parsedMinutesInput else { return }
+        // Entries above the largest ever logged (120) need a second press,
+        // so a typo like 250 for 25 can't silently add 10 pomodoros.
+        if abs(n) > Self.confirmMinutesAbove && pendingLargeMinutes != n {
+            pendingLargeMinutes = n
+            return
+        }
         addMinutes(n)
         minutesInput = ""
+        pendingLargeMinutes = nil
         minutesFocused = false
+    }
+
+    private static let confirmMinutesAbove = 120
+
+    static func sanitizeMinutes(_ s: String) -> String {
+        var out = ""
+        for (i, ch) in s.enumerated() {
+            if ch.isASCII && ch.isNumber { out.append(ch) }
+            else if ch == "-" && i == 0 { out.append(ch) }
+        }
+        return String(out.prefix(5))
+    }
+
+    /// Removes the last pomodoro; when today's total comes only from extra
+    /// minutes, subtracts one pomodoro's worth of minutes instead.
+    private func minusTap() {
+        if store.todayCount > 0 {
+            eventLog.log(.manualRemoved)
+            store.removeMostRecentToday()
+        } else if store.todayBonusCycles > 0 {
+            addMinutes(-LogStore.minutesPerCycle)
+        }
     }
 
     private func addMinutes(_ m: Int) {

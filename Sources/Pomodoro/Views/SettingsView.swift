@@ -5,15 +5,10 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @AppStorage(SoundSettings.enabledKey) private var soundEnabled: Bool = true
     @AppStorage(SoundSettings.soundKey) private var soundID: String = SoundSettings.defaultSoundID
-    @AppStorage(SoundSettings.breakSoundKey) private var breakSoundID: String = SoundSettings.defaultBreakSoundID
     @AppStorage(SoundSettings.volumeKey) private var volume: Double = SoundSettings.defaultVolume
     @AppStorage(SoundSettings.customPathKey) private var customPath: String = ""
 
     @AppStorage(GoalSettings.key) private var dailyGoal: Int = GoalSettings.defaultGoal
-    @AppStorage(BreakSettings.shortKey) private var shortBreak: Int = BreakSettings.defaultShort
-    @AppStorage(BreakSettings.longKey) private var longBreak: Int = BreakSettings.defaultLong
-    @AppStorage(BreakSettings.everyKey) private var longEvery: Int = BreakSettings.defaultEvery
-    @AppStorage(BreakSettings.autoStartKey) private var autoStartBreaks: Bool = false
 
     @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @State private var launchError: String?
@@ -33,33 +28,11 @@ struct SettingsView: View {
             }
 
             Section {
-                Stepper(value: $shortBreak, in: 1...30) {
-                    LabeledContent("Short break", value: "\(shortBreak) min")
-                }
-                Stepper(value: $longBreak, in: 5...60, step: 5) {
-                    LabeledContent("Long break", value: "\(longBreak) min")
-                }
-                Stepper(value: $longEvery, in: 2...12) {
-                    LabeledContent("Long break", value: "every \(longEvery) pomodoros")
-                }
-                Toggle("Start breaks automatically", isOn: $autoStartBreaks)
-            } header: {
-                Text("Breaks")
-            } footer: {
-                Text("Breaks don't count as pomodoros. An unused break suggestion clears after 20 minutes.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Play sounds", isOn: $soundEnabled)
+                Toggle("Play a sound when a pomodoro ends", isOn: $soundEnabled)
 
                 Group {
-                    Picker("When a pomodoro ends", selection: $soundID) { soundOptions }
+                    Picker("Sound", selection: $soundID) { soundOptions }
                         .onChange(of: soundID) { _ in preview(soundID) }
-
-                    Picker("When a break ends", selection: $breakSoundID) { soundOptions }
-                        .onChange(of: breakSoundID) { _ in preview(breakSoundID) }
 
                     LabeledContent("Volume") {
                         HStack(spacing: 8) {
@@ -121,7 +94,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 640)
+        .frame(width: 440, height: 520)
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
@@ -142,8 +115,7 @@ struct SettingsView: View {
         SoundPlayer.shared.play(id: id, volume: volume)
     }
 
-    /// The chosen file becomes the pomodoro-end sound (it's also selectable
-    /// for breaks from the list).
+    /// The chosen file becomes the completion sound.
     private func chooseFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.audio]

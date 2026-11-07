@@ -154,14 +154,6 @@ final class LogStore: ObservableObject {
         }
     }
 
-    /// Pomodoros completed by the timer today (drives the long-break rhythm).
-    var todayTimerCount: Int {
-        let cal = Calendar.current
-        return entries.reduce(into: 0) { acc, e in
-            if e.source == .timer, cal.isDateInToday(e.completedAt) { acc += 1 }
-        }
-    }
-
     /// Raw sum of extra-minute entries logged today. Can be negative if the
     /// user subtracted too much.
     var todayMinutes: Int {
