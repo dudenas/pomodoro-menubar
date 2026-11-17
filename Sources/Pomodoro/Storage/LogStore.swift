@@ -175,6 +175,48 @@ final class LogStore: ObservableObject {
         todayCount + todayBonusCycles
     }
 
+    /// Where "minutes since" counts from: see `lastAccountedTime(in:now:cal:)`.
+    var lastAccountedToday: Date? {
+        Self.lastAccountedTime(in: entries)
+    }
+
+    /// The latest moment today whose time is already logged: a pomodoro
+    /// ending (timer or +) or a positive extra-minutes entry. Positive
+    /// entries move it forward so a second fill never counts the same
+    /// minutes twice; negative ones are corrections and don't. Built from
+    /// entries (not the event log) so Undo moves it back. Today only, so
+    /// the first fill of the morning doesn't offer the whole night.
+    static func lastAccountedTime(in entries: [PomodoroEntry],
+                                  now: Date = Date(),
+                                  cal: Calendar = .current) -> Date? {
+        entries
+            .filter { e in
+                guard cal.isDate(e.completedAt, inSameDayAs: now), e.completedAt <= now else { return false }
+                switch e.source {
+                case .timer, .manual: return true
+                case .minutes: return (e.minutes ?? 0) > 0
+                case .rollover: return false
+                }
+            }
+            .map(\.completedAt)
+            .max()
+    }
+
+    /// Minutes worked between the last logged moment and the start of the
+    /// pomodoro now running or paused. Nil when there's nothing to fill —
+    /// including when time was logged after it started, which means that gap
+    /// was already handled (and once these minutes are added, it has been).
+    static func minutesBeforeStart(anchor: Date?, start: Date?) -> Int? {
+        guard let anchor, let start, start > anchor else { return nil }
+        let m = wholeMinutes(from: anchor, to: start)
+        return m > 0 ? m : nil
+    }
+
+    /// Whole minutes from `anchor` to `now`, never negative.
+    static func wholeMinutes(from anchor: Date, to now: Date = Date()) -> Int {
+        max(0, Int(now.timeIntervalSince(anchor) / 60))
+    }
+
     // MARK: - Derived (history)
 
     /// Returns per-day totals for the last `days` days, newest first.

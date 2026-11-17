@@ -228,14 +228,28 @@ struct MenuBarContentView: View {
 
     private var extraMinutes: some View {
         VStack(spacing: 8) {
-            // Left: extra minutes logged today. Right: what's left until
-            // they add up to the next full pomodoro.
-            HStack(alignment: .top) {
-                minuteStat(value: store.todayMinutes, caption: "extra minutes today",
-                           alignment: .leading, dimmed: store.todayMinutes == 0)
+            // Right is the headline — what to aim for next. Left is only the
+            // running tally, so it's smaller and quieter; captions share a
+            // baseline so the row still reads as one pair.
+            HStack(alignment: .lastTextBaseline) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(store.todayMinutes) min")
+                        .font(.system(.callout, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(store.todayMinutes == 0 ? .tertiary : .secondary)
+                    Text("extra today")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
-                minuteStat(value: minutesToNext, caption: "left to a full pomodoro",
-                           alignment: .trailing, dimmed: false)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("\(minutesToNext) min")
+                        .font(.system(.title3, design: .rounded).weight(.semibold))
+                        .monospacedDigit()
+                    Text("left to a full pomodoro")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             HStack(spacing: 6) {
@@ -246,9 +260,7 @@ struct MenuBarContentView: View {
             }
 
             HStack(spacing: 6) {
-                Text("Other")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                sinceLastButton
                 TextField("e.g. 20 or -10", text: $minutesInput)
                     .textFieldStyle(.roundedBorder)
                     .focused($minutesFocused)
@@ -277,18 +289,66 @@ struct MenuBarContentView: View {
         }
     }
 
-    private func minuteStat(value: Int, caption: String,
-                            alignment: HorizontalAlignment, dimmed: Bool) -> some View {
-        VStack(alignment: alignment, spacing: 1) {
-            Text("\(value) min")
-                .font(.system(.body, design: .rounded).weight(.semibold))
+    /// Fills the field with the minutes since time was last logged today
+    /// (a pomodoro ending, or extra minutes). Idle, it counts up to now.
+    /// During a pomodoro (running or paused) it counts up to when that
+    /// pomodoro started, so time worked before pressing Start isn't lost.
+    /// Only fills — Add still commits, so a span that includes lunch can be
+    /// trimmed first, and anything over two hours still asks for a second press.
+    private var sinceLastButton: some View {
+        let anchor = store.lastAccountedToday
+        let idle = engine.state == .idle
+        let start = idle ? nil : eventLog.lastStartedAt
+        let beforeStart = LogStore.minutesBeforeStart(anchor: anchor, start: start)
+        return Button(action: fillSinceLast) {
+            Text(sinceLabel(anchor: anchor, start: beforeStart != nil ? start : nil))
                 .monospacedDigit()
-                .foregroundStyle(dimmed ? .secondary : .primary)
-            Text(caption)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
         }
+        .controlSize(.small)
+        .fixedSize()
+        .disabled(anchor == nil || (!idle && beforeStart == nil))
+        .help(sinceLastHelp(anchor: anchor, start: start, idle: idle, beforeStart: beforeStart))
     }
+
+    private func sinceLabel(anchor: Date?, start: Date?) -> String {
+        guard let anchor else { return "Since last" }
+        let from = Self.clockFormatter.string(from: anchor)
+        guard let start else { return "Since \(from)" }
+        return "\(from)–\(Self.clockFormatter.string(from: start))"
+    }
+
+    private func sinceLastHelp(anchor: Date?, start: Date?, idle: Bool, beforeStart: Int?) -> String {
+        guard let anchor else { return "Nothing logged yet today — finish a pomodoro first" }
+        let from = Self.clockFormatter.string(from: anchor)
+        if idle { return "Fill in the minutes since \(from), when you last logged time" }
+        guard let beforeStart, let start else { return "No unlogged time before this pomodoro started" }
+        return "Fill in the \(beforeStart) min between \(from) and \(Self.clockFormatter.string(from: start)), before this pomodoro started"
+    }
+
+    /// Idle, the minutes are computed at tap time: nothing re-renders the
+    /// popover while idle, so a number shown on the label would go stale.
+    private func fillSinceLast() {
+        guard let anchor = store.lastAccountedToday else { return }
+        let m: Int
+        if engine.state == .idle {
+            m = LogStore.wholeMinutes(from: anchor)
+        } else {
+            guard let fixed = LogStore.minutesBeforeStart(anchor: anchor, start: eventLog.lastStartedAt) else { return }
+            m = fixed
+        }
+        guard m > 0 else { return }
+        minutesInput = String(m)
+        // Focus the field so Return adds the minutes instead of firing the
+        // default Start button.
+        minutesFocused = true
+    }
+
+    private static let clockFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .none
+        f.timeStyle = .short
+        return f
+    }()
 
     /// Minutes until the extra-minutes pool makes another pomodoro.
     private var minutesToNext: Int {

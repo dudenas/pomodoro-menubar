@@ -50,6 +50,12 @@ final class EventLog: ObservableObject {
         save()
     }
 
+    /// When the latest pomodoro was started (not resumed). While the timer
+    /// is running or paused, that's the current pomodoro's start.
+    var lastStartedAt: Date? {
+        events.last(where: { $0.kind == .started })?.timestamp
+    }
+
     /// Events that occurred on the given calendar day, oldest first.
     func events(on day: Date) -> [Event] {
         let cal = Calendar.current
