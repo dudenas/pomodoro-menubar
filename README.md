@@ -42,7 +42,7 @@ Then Cmd-R to run.
 - `Sources/Pomodoro/Sound/SoundSynth.swift` — the built-in sounds (Soft chime, Warm bell, Singing bowl, Marimba), synthesised in code; no audio files bundled.
 - `Sources/Pomodoro/Sound/CompletionSound.swift` — sound list (built-in + macOS system sounds + your own file), volume, playback.
 - `Sources/Pomodoro/Views/SettingsView.swift` — Settings: launch at login, sound on/off, sound picker with preview, volume, "Use my own file…".
-- `Sources/Pomodoro/Views/MenuBarContentView.swift` — popover UI (timer, Start/Pause, Cancel, today's count with ± buttons, History, Quit).
+- `Sources/Pomodoro/Views/MenuBarContentView.swift` — popover UI (timer, Start/Pause, Cancel, today's count with ± buttons, extra minutes with a "Since" button that fills in the time since you last logged — or, during a pomodoro, the gap before it started — History, Quit).
 - `Sources/Pomodoro/Views/HistoryView.swift` — last 5 weeks grouped by week, bars with a daily-goal marker.
 
 ## Quick-test the completion flow
